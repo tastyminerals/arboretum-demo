@@ -96,11 +96,12 @@ func stopCluster() error {
 }
 
 // TODO: Let's keep it fixed here for now, later use conf files
-func startCluster() error {
+func startCluster(manifests []string) error {
 	if err := stopCluster(); err != nil {
 		return err
 	}
-	cmd := exec.Command("minikube", "start", "--nodes", "1", "-p", "arboretum", "--insecure-registry=192.168.67.2:30000")
+	// if you're on MacOS, you need to enable minikube's registry addon first, push images directly there via port-forwarding
+	cmd := exec.Command("minikube", "start", "--nodes", "1", "-p", "arboretum")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Running minikube caused %v because of %v\n", err, string(out))
@@ -123,13 +124,15 @@ func startCluster() error {
 	}
 
 	// apply manifests
-	cmd = exec.Command("kubectl", "apply", "-f", "manifests/basicpod-with-port.yaml")
-	out, err = cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Running kubectl caused %v because of %v\n", err, string(out))
-		return err
+	for _, fname := range manifests {
+		cmd = exec.Command("kubectl", "apply", "-f", "manifests/"+fname)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			log.Printf("Applying manifests/%s caused %v because of %v\n", fname, err, string(out))
+			return err
+		}
+		log.Printf("%v\n", string(out))
 	}
-	log.Printf("%v\n", string(out))
 	return nil
 }
 
@@ -138,6 +141,8 @@ func main() {
 	checkDeps := flag.Bool("checkDeps", false, "check if system has required dependencies")
 	checkDirs := flag.Bool("checkDirs", false, "check if project dir structure is valid")
 	checkManifests := flag.Bool("checkManifests", false, "check if manifests can be parsed")
+
+	manifests := flag.Args()
 
 	flag.Parse()
 
@@ -171,7 +176,7 @@ func main() {
 		fmt.Println("Manifests are valid YAML files")
 	}
 
-	if err := startCluster(); err != nil {
+	if err := startCluster(manifests); err != nil {
 		fmt.Println("Oops")
 	}
 }
