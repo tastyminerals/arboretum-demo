@@ -154,6 +154,8 @@ func main() {
 	go fetchAndPublish(ctx, url, pubSubject)
 
 	// add goroutine for shutdown via SIGTERM, e.g. so that k8s can cleanly terminate the pod
+	// HINT: ideally, the channel creation should be done separately (in main), this is more idiomatic.
+	// It removes the minute timing window where SIGTERM arrives but goroutine handling it is not yet registered.
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -161,6 +163,7 @@ func main() {
 		cancel() // actual shutdown
 	}()
 
-	log.Printf("Yeeeboi \n")
+	log.Println("Yeeeboi")
 	<-ctx.Done() // we need to block until all our goroutines finish, main won't wait for them
+	log.Println("Fetcher stopped")
 }
