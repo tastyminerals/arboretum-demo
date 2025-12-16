@@ -30,8 +30,10 @@ spec:
         env:
         - name: NATS_URL
           value: "nats://nats:4222"
+        - name: FEED_FREQUENCY_TYPE
+          value: "all_hour"
         - name: PUB_SUBJECT
-          value: "earthquakes.raw.all_hour"
+          value: "earthquakes.raw"
         resources:
           limits:
             cpu: "100m"

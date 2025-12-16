@@ -21,9 +21,12 @@ spec:
           name: client
         - containerPort: 8222
           name: monitor
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nats
         args:
-        - "-m"
-        - "8222"
+        - "-c"
+        - "/etc/nats/nats.conf"
         resources:
           requests:
             cpu: 100m
@@ -31,3 +34,7 @@ spec:
           limits:
             cpu: 200m
             memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config

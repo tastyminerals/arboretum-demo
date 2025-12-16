@@ -18,12 +18,12 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-var feeds_url = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/"
+var feedsUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/"
 
 // Create http client and perform a GET request to fetch USGS feed data.
-func fetchData(ctx context.Context, feed_type string) ([]byte, error) {
+func fetchData(ctx context.Context, feedType string) ([]byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feeds_url+feed_type, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedsUrl+feedType, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func fetchData(ctx context.Context, feed_type string) ([]byte, error) {
 // This function fetches the USGS feed as JSON each minute and pushes it to message broker.
 // It performs up to 5 retries with simple backoff
 // HINT: The frequency is one minute because this is the frequency of USGS feeds updates.
-func fetchAndPublish(ctx context.Context, url string, subject string) {
+func fetchAndPublish(ctx context.Context, url string, subject string, feedType string) {
 
 	// create unauthenticated NATS connection
 	nc, err := nats.Connect(url,
@@ -98,8 +98,7 @@ func fetchAndPublish(ctx context.Context, url string, subject string) {
 			requestCtx, requestCancel := context.WithTimeout(ctx, 10*time.Second)
 
 			for attempt := 0; attempt < maxRetries; attempt++ {
-				// TODO: "all_hour" is hardcoded for now, but we should be able to configure the time here
-				data, err = fetchData(requestCtx, "all_hour.geojson")
+				data, err = fetchData(requestCtx, feedType+".geojson")
 				if err == nil {
 					break
 				}
@@ -145,13 +144,19 @@ func main() {
 		url = "nats://nats:4222"
 	}
 
-	pubSubject := os.Getenv("PUB_SUBJECT")
-	if pubSubject == "" {
-		log.Println("PUB_SUBJECT is not set! Using 'earthquakes.raw.all_hour'")
-		pubSubject = "earthquakes.raw.all_hour"
+	feedType := os.Getenv("FEED_FREQUENCY_TYPE")
+	if feedType == "" {
+		log.Println("FEED_FREQUENCY_TYPE is not set, using 'all_hour'")
+		feedType = "all_hour"
 	}
 
-	go fetchAndPublish(ctx, url, pubSubject)
+	pubSubject := os.Getenv("PUB_SUBJECT") + "." + feedType
+	if pubSubject == "" {
+		log.Println("PUB_SUBJECT is not set! Using 'earthquakes.raw.{FEED_FREQUENCY_TYPE}'")
+		pubSubject = "earthquakes.raw." + feedType
+	}
+
+	go fetchAndPublish(ctx, url, pubSubject, feedType)
 
 	// add goroutine for shutdown via SIGTERM, e.g. so that k8s can cleanly terminate the pod
 	// HINT: ideally, the channel creation should be done separately (in main), this is more idiomatic.
