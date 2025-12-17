@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 )
@@ -35,7 +36,6 @@ func NewTransformer(contributors map[string]string, subSubject, pubSubject strin
 	}
 }
 
-// lets add some methods for out struct
 // Register message listening callback and return, no need to block with <-ctx.Done here, we have it in main
 func (t *Transformer) subscribeAndTransform(ctx context.Context) error {
 	// we use async subscribe and a message handler callback that is executed upon message arrival
@@ -86,7 +86,12 @@ func (t *Transformer) transform(data []byte) ([]byte, error) {
 	return featuresAsData, nil
 }
 
-// Perform some custom field convertions like abbreviature expansion, degrees to km etc.
+// Perform some custom field convertions:
+//
+//   - "net": expand "net" abbreviation using contributors.tsv asset
+//   - "dmin_distance": use "dmin" value to calculate the distance to the closes station in km
+//   - "ids", "sources", "types": clean-up leading and trailing commas
+//
 // TIP: keep error for future more sensitive data convertions
 func (t *Transformer) convert(features []GeoFeature) ([]GeoFeature, error) {
 	// TIP: index only based iteration is used here because Go range creates value copies if they are also requested
@@ -99,6 +104,11 @@ func (t *Transformer) convert(features []GeoFeature) ([]GeoFeature, error) {
 		if isValidFloat(features[i].Properties.Dmin) {
 			features[i].Properties.DminDistance = features[i].Properties.Dmin * degInKM
 		}
+
+		// clean-up leading and trailing commas in certain fields
+		features[i].Properties.Ids = strings.Trim(features[i].Properties.Ids, ",")
+		features[i].Properties.Sources = strings.Trim(features[i].Properties.Sources, ",")
+		features[i].Properties.Types = strings.Trim(features[i].Properties.Types, ",")
 	}
 	return features, nil
 }
