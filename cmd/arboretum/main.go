@@ -17,8 +17,7 @@ import (
 
 var aboutText = `This package is the entry point to the main microservice app.
 Its task is to perform some preliminary system checks before calling kubernetes to start cluster initialization.
-Since cluster initialization can take some time depending on the configuration, we would like to detect issues early.
-`
+Since cluster initialization can take some time depending on the configuration, we would like to detect issues early.`
 
 var requiredDeps = []string{"minikube", "docker", "kubectl"}
 var requiredDirs = []string{"cmd", "manifests", "services", "arboretum", "fetcher", "transformer", "web", "writer"}
@@ -136,7 +135,9 @@ func startCluster(manifests []string) error {
 	return nil
 }
 
+// TODO: We need to check the migration files syntax, otherwise migrate will fail with vague dirty database error
 func main() {
+	// Go std support for cli parsing is quite limited, but enough for simple things.
 	needAbout := flag.Bool("help", false, aboutText)
 	checkDeps := flag.Bool("checkDeps", false, "check if system has required dependencies")
 	checkDirs := flag.Bool("checkDirs", false, "check if project dir structure is valid")
