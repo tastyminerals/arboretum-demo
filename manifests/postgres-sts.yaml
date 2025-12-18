@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-sts
+  namespace: earthquakes-app
+  labels:
+    app: postgres-sts
+spec:
+  serviceName: postgres-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-sts
+  template:
+    metadata:
+      labels:
+        app: postgres-sts
+    spec:
+      containers:
+        # we won't specify the resource constraints here because we use minikube, but you should if you want to be serious
+        - name: postgres-container
+          image: imresamu/postgis:18-3.6-alpine3.22
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres-port
+              containerPort: 5432
+          envFrom:
+            - configMapRef:
+                name: postgres-cm
+          volumeMounts:
+            - name: postgres-db-vol
+              mountPath: /var/lib/postgresql
+          readinessProbe: # pg_isready can be used here, but since we use single node, lets keep it KISS
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 5432
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: postgres-db-vol
+          persistentVolumeClaim:
+            claimName: postgres-pvc

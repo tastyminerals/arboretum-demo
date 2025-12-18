@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-cm
+  namespace: earthquakes-app
+  labels:
+    app: postgres-cm
+data:
+  POSTGRES_DB: earthquakes-db # this db will be created automatically
+  POSTGRES_USER: postgres # "postgres" is default user name
+  POSTGRES_PASSWORD: letmein
