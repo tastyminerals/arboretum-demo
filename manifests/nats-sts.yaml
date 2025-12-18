@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nats
+  namespace: earthquakes-app
 spec:
   serviceName: nats
   replicas: 1
@@ -14,26 +15,26 @@ spec:
         app: nats
     spec:
       containers:
-      - name: nats
-        image: nats:2.12
-        ports:
-        - containerPort: 4222
-          name: client
-        - containerPort: 8222
-          name: monitor
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nats
-        args:
-        - "-c"
-        - "/etc/nats/nats.conf"
-        resources:
-          requests:
-            cpu: 100m
-            memory: 128Mi
-          limits:
-            cpu: 200m
-            memory: 256Mi
+        - name: nats
+          image: nats:2.12
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 8222
+              name: monitor
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+          args:
+            - "-c"
+            - "/etc/nats/nats.conf"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
       volumes:
         - name: config
           configMap:
