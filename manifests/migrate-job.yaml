@@ -1,0 +1,29 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: run-migrate
+  namespace: earthquakes-app
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: wait-postgres-server
+          image: bitnami/kubectl:latest
+          command:
+            - sh
+            - -c
+            - |
+              kubectl wait --for=condition=Ready pod -l app=postgres-sts -n earthquakes-app --timeout=300s
+
+      containers:
+        - name: migrate
+          image: localhost:5000/migrate-with-migrations:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - |
+              migrate -source file://migrations -database postgres://postgres:letmein@postgres-service:5432/earthquakes-db?sslmode=disable up
+
+      restartPolicy: OnFailure
+      serviceAccountName: migrate-sa
