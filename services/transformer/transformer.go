@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+	"github.com/tastyminerals/arboretum-demo/services/internal/natsutils"
 )
 
 // Earth circumference 40075 km / 360 degrees; 1 degree ~ 111.32 km
@@ -18,7 +19,7 @@ func isValidFloat(f float64) bool {
 	return !math.IsNaN(f) && !math.IsInf(f, 0)
 }
 
-// Not your attention transformer, or Takara Transformers...
+// Not your attention transformer or Takara transformer...
 // This is just a data struct so you don't pollute the function signatures too much.
 type Transformer struct {
 	contributors map[string]string
@@ -27,7 +28,19 @@ type Transformer struct {
 	nc           *nats.Conn
 }
 
-func NewTransformer(contributors map[string]string, subSubject, pubSubject string, nc *nats.Conn) *Transformer {
+// a function to create a Transformer cla#*, oops, go struct instance
+func NewTransformer(contributors map[string]string, subSubject, pubSubject string, url string) *Transformer {
+	nc, err := natsutils.Connect(url, "arboretum-transformer")
+	if err != nil {
+		log.Fatalf("failed to connect to NATS due to %v\n", err)
+	}
+
+	defer func() {
+		if err := nc.Drain(); err != nil {
+			log.Printf("failed to drain NATS connections: %v\n", err)
+		}
+	}()
+
 	return &Transformer{
 		contributors: contributors,
 		subSubject:   subSubject,
@@ -36,8 +49,9 @@ func NewTransformer(contributors map[string]string, subSubject, pubSubject strin
 	}
 }
 
-// Register message listening callback and return, no need to block with <-ctx.Done here, we have it in main
-func (t *Transformer) subscribeAndTransform(ctx context.Context) error {
+// Subscribe, transform and publish the transfomed message to NATS.
+func (t *Transformer) transformAndPublish(ctx context.Context) error {
+	// Register message listening callback and return, no need to block with <-ctx.Done here, we have it in main
 	// we use async subscribe and a message handler callback that is executed upon message arrival
 	_, err := t.nc.Subscribe(t.subSubject, func(msg *nats.Msg) {
 		select {

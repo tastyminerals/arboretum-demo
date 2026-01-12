@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	"github.com/tastyminerals/arboretum-demo/services/internal/natsutils"
 )
 
 var feedsUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/"
@@ -50,32 +50,15 @@ func fetchData(ctx context.Context, feedType string) ([]byte, error) {
 	return data, nil
 }
 
-// This function fetches the USGS feed as JSON each minute and pushes it to message broker.
-// It performs up to 5 retries with simple backoff
-// HINT: The frequency is one minute because this is the frequency of USGS feeds updates.
+// This function fetches the USGS feed as JSON once per minute and pushes it to message broker.
+// The function performs up to 5 retries with simple backoff
+// HINT: The update frequency is set to once per minute because this is the frequency of USGS feeds update.
 func fetchAndPublish(ctx context.Context, url string, subject string, feedType string) {
 
 	// create unauthenticated NATS connection
-	nc, err := nats.Connect(url,
-		nats.Name("arboretum-fetcher"),
-		nats.MaxReconnects(-1), // infinite
-		nats.ReconnectWait(2*time.Second),
-		nats.ReconnectJitter(500*time.Millisecond, 2*time.Second),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			log.Printf("NATS disconnected because of %v\n", err)
-		}),
-		nats.ReconnectHandler(func(nc *nats.Conn) {
-			log.Printf("NATS reconnected to %s\n", nc.ConnectedUrl())
-		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
-			log.Printf("NATS async error because of %v\n", err)
-		}),
-		nats.Timeout(10*time.Second),
-		nats.ReconnectBufSize(1*1024*1024), // 1MB instead of default 8MB, we have low publish frequency
-	)
-
+	nc, err := natsutils.Connect(url, "arboretum-fetcher")
 	if err != nil {
-		log.Printf("failed to connect to NATS because of %v\n", err)
+		log.Fatalf("failed to connect to NATS due to %v\n", err)
 	}
 
 	defer func() {
@@ -84,8 +67,8 @@ func fetchAndPublish(ctx context.Context, url string, subject string, feedType s
 		}
 	}()
 
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop() // Go ticker never stops, we need to defer stop it
+	ticker := time.NewTicker(1 * time.Minute) // trigger fetch op once per minute
+	defer ticker.Stop()                       // Go ticker never stops, we need to defer stop it
 
 	// start the main fetcher loop that queries USGS and publishes []bytes to broker
 	for {

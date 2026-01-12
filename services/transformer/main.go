@@ -14,9 +14,6 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
-
-	"github.com/nats-io/nats.go"
 )
 
 //go:embed assets/contributors.tsv
@@ -70,20 +67,9 @@ func main() {
 		pubSubject = "earthquakes.all_hour"
 	}
 
-	nc, err := nats.Connect(url,
-		nats.Name("arboretum-transformer"),
-		nats.MaxReconnects(-1),
-		nats.ReconnectWait(2*time.Second),
-	)
+	transformer := NewTransformer(contributors, subSubject, pubSubject, url)
 
-	if err != nil {
-		log.Fatalf("failed to connect to NATS because of %v\n", err)
-	}
-	defer nc.Close()
-
-	transformer := NewTransformer(contributors, subSubject, pubSubject, nc)
-
-	err = transformer.subscribeAndTransform(ctx)
+	err = transformer.transformAndPublish(ctx)
 	if err != nil {
 		log.Fatalf("subscription failed due to %v", err)
 	}
@@ -93,7 +79,6 @@ func main() {
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		<-sigCh
 		cancel()
-		nc.Drain()
 	}()
 
 	log.Println("For better or worse, transform you...")
