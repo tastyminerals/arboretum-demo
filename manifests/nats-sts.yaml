@@ -17,11 +17,28 @@ spec:
       containers:
         - name: nats
           image: nats:2.12
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 4222
               name: client
             - containerPort: 8222
               name: monitor
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 2
           volumeMounts:
             - name: config
               mountPath: /etc/nats

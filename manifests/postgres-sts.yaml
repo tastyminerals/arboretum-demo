@@ -17,7 +17,7 @@ spec:
         app: postgres-sts
     spec:
       containers:
-        # we won't specify the resource constraints here because we use minikube, but you should if you want to be serious
+        # we won't specify the resource constraints here because we use minikube, but you should if you are serious
         - name: postgres-container
           image: imresamu/postgis:18-3.6-alpine3.22
           imagePullPolicy: IfNotPresent
