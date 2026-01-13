@@ -68,8 +68,14 @@ func main() {
 	}
 
 	transformer := NewTransformer(contributors, subSubject, pubSubject, url)
+	defer func() {
+		if err := transformer.nc.Drain(); err != nil {
+			log.Printf("failed to drain NATS connections: %v\n", err)
+		}
+	}()
 
 	err = transformer.transformAndPublish(ctx)
+
 	if err != nil {
 		log.Fatalf("subscription failed due to %v", err)
 	}

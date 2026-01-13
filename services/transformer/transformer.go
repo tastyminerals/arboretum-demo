@@ -35,12 +35,6 @@ func NewTransformer(contributors map[string]string, subSubject, pubSubject strin
 		log.Fatalf("failed to connect to NATS due to %v\n", err)
 	}
 
-	defer func() {
-		if err := nc.Drain(); err != nil {
-			log.Printf("failed to drain NATS connections: %v\n", err)
-		}
-	}()
-
 	return &Transformer{
 		contributors: contributors,
 		subSubject:   subSubject,
