@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS earthquake.events
   tz smallint,
   url text,
   detail text,
-  felt smallint DEFAULT 0,
+  felt smallint,
   cdi numeric(4, 2) CHECK(cdi >= 0 AND cdi <= 10.0) DEFAULT 0, 
   mmi numeric(4, 2) CHECK(mmi >= 0 AND mmi <= 10.0),
   alert varchar(8),
