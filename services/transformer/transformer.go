@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+	"github.com/tastyminerals/arboretum-demo/services/internal/messages"
 	"github.com/tastyminerals/arboretum-demo/services/internal/natsutils"
 )
 
@@ -43,8 +44,8 @@ func NewTransformer(contributors map[string]string, subSubject, pubSubject strin
 	}
 }
 
-// Subscribe, transform and publish the transfomed message to NATS.
-func (t *Transformer) transformAndPublish(ctx context.Context) error {
+// Subscribe to NATS and register transform and publish callback that will be triggered by NATS libray upon message arrival.
+func (t *Transformer) subWithTransformAndPublishCallback(ctx context.Context) error {
 	// Register message listening callback and return, no need to block with <-ctx.Done here, we have it in main
 	// we use async subscribe and a message handler callback that is executed upon message arrival
 	_, err := t.nc.Subscribe(t.subSubject, func(msg *nats.Msg) {
@@ -52,17 +53,17 @@ func (t *Transformer) transformAndPublish(ctx context.Context) error {
 		case <-ctx.Done(): // if we received SIGTERM don't run transform, just exit
 			return
 		default:
-		}
+			transformed, err := t.transform(msg.Data)
+			fmt.Printf("transformed data --> %s\n", string(transformed))
+			if err != nil {
+				log.Printf("transform failed due to %v\n", err)
+				return
+			}
 
-		transformed, err := t.transform(msg.Data)
-		fmt.Printf("transformed data --> %s\n", string(transformed))
-		if err != nil {
-			log.Printf("transform failed due to %v", err)
-			return
-		}
-
-		if err := t.nc.Publish(t.pubSubject, transformed); err != nil {
-			log.Printf("failed to publish transformed feeds due to %v", err)
+			// transformed is marshalled []GeoFeature
+			if err := t.nc.Publish(t.pubSubject, transformed); err != nil {
+				log.Printf("failed to publish transformed feeds due to %v", err)
+			}
 		}
 	})
 
@@ -70,12 +71,13 @@ func (t *Transformer) transformAndPublish(ctx context.Context) error {
 		return fmt.Errorf("failed to receive a message from %s because of %w", t.subSubject, err)
 	}
 
-	log.Printf("Subscribed to %s, publishing to %s\n", t.subSubject, t.pubSubject)
+	log.Printf("Subscribed to %s, publishing to %s", t.subSubject, t.pubSubject)
 	return nil
 }
 
+// Transform data bytes into USGSFeeds and then into GeoFeature array ready to be published.
 func (t *Transformer) transform(data []byte) ([]byte, error) {
-	var feeds USGSFeeds
+	var feeds messages.USGSFeeds
 
 	if err := json.Unmarshal(data, &feeds); err != nil {
 		return nil, fmt.Errorf("unmarshalling received data failed: %w", err)
@@ -101,7 +103,7 @@ func (t *Transformer) transform(data []byte) ([]byte, error) {
 //   - "ids", "sources", "types": clean-up leading and trailing commas
 //
 // TIP: keep error for future more sensitive data convertions
-func (t *Transformer) convert(features []GeoFeature) ([]GeoFeature, error) {
+func (t *Transformer) convert(features []messages.GeoFeature) ([]messages.GeoFeature, error) {
 	// TIP: index only based iteration is used here because Go range creates value copies if they are also requested
 	for i := range features {
 		// expand abbreviations if key exists, otherwise, we keep the original "net" value

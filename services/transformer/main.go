@@ -74,7 +74,8 @@ func main() {
 		}
 	}()
 
-	err = transformer.transformAndPublish(ctx)
+	// here we register a func callback that will be triggered whenver a message arrives
+	err = transformer.subWithTransformAndPublishCallback(ctx)
 
 	if err != nil {
 		log.Fatalf("subscription failed due to %v", err)
