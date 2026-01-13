@@ -1,6 +1,6 @@
 // See GeoJSON summary format: https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php
 // This package contains type structs for USGS feeds json decoding.
-package main
+package messages
 
 // we omit "tsunami" field
 type Properties struct {
@@ -47,4 +47,13 @@ type GeoFeature struct {
 type USGSFeeds struct {
 	Type     string       `json:"type"`
 	Features []GeoFeature `json:"features"`
+}
+
+// represents earthquake impact data which becomes available after some time only
+// comes from Feature "properties" -> "products" -> "impact-text"
+type ImpactData struct {
+	Id           string `json:"id"`           // Feature top level "id"
+	Time         int64  `json:"time"`         // Feature top level "time"
+	LastModified int64  `json:"lastModified"` //"impact-text: [{"contents" : {"" : {"lastModified"}}}]"
+	Text         string `json:"bytes"`        // "impact-text: [{"contents" : {"" : {"bytes"}}}]"
 }
