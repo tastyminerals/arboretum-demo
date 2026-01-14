@@ -54,7 +54,6 @@ func (t *Transformer) subWithTransformAndPublishCallback(ctx context.Context) er
 			return
 		default:
 			transformed, err := t.transform(msg.Data)
-			fmt.Printf("transformed data --> %s\n", string(transformed))
 			if err != nil {
 				log.Printf("transform failed due to %v\n", err)
 				return
@@ -80,7 +79,7 @@ func (t *Transformer) transform(data []byte) ([]byte, error) {
 	var feeds messages.USGSFeeds
 
 	if err := json.Unmarshal(data, &feeds); err != nil {
-		return nil, fmt.Errorf("unmarshalling received data failed: %w", err)
+		return nil, fmt.Errorf("unmarshaling received data failed: %w", err)
 	}
 
 	features, err := t.convert(feeds.Features)
@@ -96,13 +95,15 @@ func (t *Transformer) transform(data []byte) ([]byte, error) {
 	return featuresAsData, nil
 }
 
-// Perform some custom field convertions:
-//
-//   - "net": expand "net" abbreviation using contributors.tsv asset
-//   - "dmin_distance": use "dmin" value to calculate the distance to the closes station in km
-//   - "ids", "sources", "types": clean-up leading and trailing commas
-//
-// TIP: keep error for future more sensitive data convertions
+/*
+	 Perform some custom field convertions:
+
+		- "net": expand "net" abbreviation using contributors.tsv asset
+	  - "dmin_distance": use "dmin" value to calculate the distance to the closes station in km
+	  - "ids", "sources", "types": clean-up leading and trailing commas
+
+TIP: keep error for future more sensitive data convertions
+*/
 func (t *Transformer) convert(features []messages.GeoFeature) ([]messages.GeoFeature, error) {
 	// TIP: index only based iteration is used here because Go range creates value copies if they are also requested
 	for i := range features {
