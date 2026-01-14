@@ -3,11 +3,12 @@ CREATE SCHEMA earthquake;
 CREATE TABLE IF NOT EXISTS earthquake.events
 (
   id varchar(100) NOT NULL,
+  time timestamp NOT NULL,
   coordinates geography(POINT, 4326),
+  updated timestamp NOT NULL,
+  depth smallint CHECK(depth >= 0 AND depth <= 1000),
   magnitude numeric(4, 2) CHECK(magnitude >= 0 AND magnitude <= 10.0) DEFAULT 0,
   place varchar(250) NOT NULL,
-  time timestamp NOT NULL,
-  updated timestamp NOT NULL,
   tz smallint,
   url text,
   detail text,
