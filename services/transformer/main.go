@@ -56,15 +56,15 @@ func main() {
 	// we subscribe to the fetcher PUB_SUBJECT
 	subSubject := os.Getenv("SUB_SUBJECT")
 	if subSubject == "" {
-		log.Println("SUB_SUBJECT is not set! Using 'earthquakes.raw.all_hour'")
-		subSubject = "earthquakes.raw.all_hour"
+		log.Println("SUB_SUBJECT is not set! Using 'earthquakes.raw.*'")
+		subSubject = "earthquakes.raw.*"
 	}
 
 	// we publish data after transform to a different subject
 	pubSubject := os.Getenv("PUB_SUBJECT")
 	if pubSubject == "" {
-		log.Println("PUB_SUBJECT is not set! Using 'earthquakes.all_hour'")
-		pubSubject = "earthquakes.all_hour"
+		log.Println("PUB_SUBJECT is not set! Using 'earthquakes.events'")
+		pubSubject = "earthquakes.events"
 	}
 
 	transformer := NewTransformer(contributors, subSubject, pubSubject, url)
