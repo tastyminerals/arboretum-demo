@@ -1,15 +1,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: fetcher
+  name: fetcher-hour
   namespace: earthquakes-app
   labels:
-    run: fetcher
+    run: fetcher-hour
 spec:
   replicas: 1
   selector:
     matchLabels:
-      run: fetcher
+      run: fetcher-hour
 
   strategy:
     rollingUpdate:
@@ -20,7 +20,7 @@ spec:
   template:
     metadata:
       labels:
-        run: fetcher
+        run: fetcher-hour
     spec:
       nodeSelector:
         kubernetes.io/hostname: arboretum
@@ -31,6 +31,8 @@ spec:
           env:
             - name: NATS_URL
               value: "nats://nats:4222"
+            - name: POLL_FREQUENCY
+              value: "1m" # 30m, 1h, 6h etc.
             - name: FEED_FREQUENCY_TYPE
               value: "all_hour"
             - name: PUB_SUBJECT

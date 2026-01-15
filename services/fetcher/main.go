@@ -20,6 +20,12 @@ import (
 
 var feedsUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/"
 
+// Pring a fetcher greeting message with some useful info
+func greetMsg(pollFreq time.Duration, feedType string, subject string) {
+	log.Printf("---> Hello there, the Fetcher is online! <---")
+	log.Printf("We shall be polling at the speed of %s from %s and publishing to %s", pollFreq.String(), feedType, subject)
+}
+
 // Create http client and perform a GET request to fetch USGS feed data.
 func fetchData(ctx context.Context, feedType string) ([]byte, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
@@ -50,10 +56,10 @@ func fetchData(ctx context.Context, feedType string) ([]byte, error) {
 	return data, nil
 }
 
-// This function fetches the USGS feed as JSON once per minute and pushes it to message broker.
-// The function performs up to 5 retries with simple backoff
+// This function fetches the USGS feed as JSON once per poll frequency set in the manifest and pushes it to the message broker.
+// The function performs up to 5 retries with simple backoff.
 // HINT: The update frequency is set to once per minute because this is the frequency of USGS feeds update.
-func fetchAndPublish(ctx context.Context, url string, subject string, feedType string) {
+func fetchAndPublish(ctx context.Context, url string, subject string, pollFreq time.Duration, feedType string) {
 
 	// create unauthenticated NATS connection
 	nc, err := natsutils.Connect(url, "arboretum-fetcher")
@@ -63,12 +69,12 @@ func fetchAndPublish(ctx context.Context, url string, subject string, feedType s
 
 	defer func() {
 		if err := nc.Drain(); err != nil {
-			log.Printf("failed to drain NATS connection: %v\n", err)
+			log.Printf("failed to drain NATS connection: %v", err)
 		}
 	}()
 
-	ticker := time.NewTicker(1 * time.Minute) // trigger fetch op once per minute
-	defer ticker.Stop()                       // Go ticker never stops, we need to defer stop it
+	ticker := time.NewTicker(pollFreq)
+	defer ticker.Stop() // Go ticker never stops, we need to defer stop it
 
 	// start the main fetcher loop that queries USGS and publishes []bytes to broker
 	for {
@@ -88,7 +94,7 @@ func fetchAndPublish(ctx context.Context, url string, subject string, feedType s
 
 				fmt.Println("Next attempt")
 				if attempt < maxRetries-1 {
-					log.Printf("attempt %d failed to fetch data because of %v\n", attempt+1, err)
+					log.Printf("attempt %d failed to fetch data because of %v", attempt+1, err)
 					// double the sleep time with every attempt: 1s, 2s, 4s, 8s, 16s
 					sleep := int64(1000 * (1 << attempt))
 					// add random jitter seeded upon package import
@@ -106,9 +112,9 @@ func fetchAndPublish(ctx context.Context, url string, subject string, feedType s
 
 			// if nothing subscribed to this channel, the message won't be delivered
 			if err := nc.Publish(subject, data); err != nil {
-				log.Printf("failed to publish to %s because of %v\n", subject, err)
+				log.Printf("failed to publish to %s because of %v", subject, err)
 			} else {
-				log.Printf("published %.2fKB message to %s\n", float64(len(data))/1024, subject)
+				log.Printf("published %.2fKB message to %s", float64(len(data))/1024, subject)
 			}
 
 		case <-ctx.Done(): // triggered when SIGTERM is called: the parent context will propagate here
@@ -127,6 +133,17 @@ func main() {
 		url = "nats://nats:4222"
 	}
 
+	pf := os.Getenv("POLL_FREQUENCY")
+	if pf == "" {
+		log.Println("POLL_FREQUENCY is not set, using '1m'")
+		pf = "1m"
+	}
+	pollFreq, err := time.ParseDuration(pf)
+	if err != nil {
+		log.Printf("failed to parse POLL_FREQUENCY value: %s due to %v, using '1m'", pf, err)
+		pollFreq = time.Duration(1 * time.Minute)
+	}
+
 	feedType := os.Getenv("FEED_FREQUENCY_TYPE")
 	if feedType == "" {
 		log.Println("FEED_FREQUENCY_TYPE is not set, using 'all_hour'")
@@ -135,11 +152,11 @@ func main() {
 
 	pubSubject := os.Getenv("PUB_SUBJECT") + "." + feedType
 	if pubSubject == "" {
-		log.Println("PUB_SUBJECT is not set! Using 'earthquakes.raw.{FEED_FREQUENCY_TYPE}'")
 		pubSubject = "earthquakes.raw." + feedType
+		log.Printf("PUB_SUBJECT is not set, using '%s'", pubSubject)
 	}
 
-	go fetchAndPublish(ctx, url, pubSubject, feedType)
+	go fetchAndPublish(ctx, url, pubSubject, pollFreq, feedType)
 
 	// add goroutine for shutdown via SIGTERM, e.g. so that k8s can cleanly terminate the pod
 	// HINT: ideally, the channel creation should be done separately (in main), this is more idiomatic.
@@ -151,7 +168,7 @@ func main() {
 		cancel() // actual shutdown
 	}()
 
-	log.Println("Yeeeboi")
+	greetMsg(pollFreq, feedType, pubSubject)
 	<-ctx.Done() // we need to block until all our goroutines finish, main won't wait for them
-	log.Println("Fetcher stopped")
+	log.Println("The Fetcher stopped.")
 }
