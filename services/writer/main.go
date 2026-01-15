@@ -127,7 +127,7 @@ func main() {
 
 	eventsSub := os.Getenv("EVENTS_SUBJECT")
 	if eventsSub == "" {
-		eventsSub = "earthquakes.all_hour"
+		eventsSub = "earthquakes.events"
 	}
 
 	nc, err := natsutils.Connect(url, "arboretum-writer")
