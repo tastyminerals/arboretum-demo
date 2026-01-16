@@ -7,6 +7,40 @@ import (
 	"time"
 )
 
+// represents GeoJSON summary feed type
+type Feed string
+
+const (
+	AllHour          Feed = "all_hour"
+	AllDay           Feed = "all_day"
+	AllWeek          Feed = "all_week"
+	AllMonth         Feed = "all_month"
+	SignificantHour  Feed = "significant_hour"
+	SignificantDay   Feed = "significant_day"
+	SignificantWeek  Feed = "significant_week"
+	SignificantMonth Feed = "significant_month"
+	Mag45Hour        Feed = "4.5_hour"
+	Mag25Hour        Feed = "2.5_hour"
+	Mag10Hour        Feed = "1.0_hour"
+	Mag45Day         Feed = "4.5_day"
+	Mag25Day         Feed = "2.5_day"
+	Mag10Day         Feed = "1.0_day"
+	Mag45Week        Feed = "4.5_week"
+	Mag25Week        Feed = "2.5_week"
+	Mag10Week        Feed = "1.0_week"
+	Mag45Month       Feed = "4.5_month"
+	Mag25Month       Feed = "2.5_month"
+	Mag10Month       Feed = "1.0_month"
+)
+
+// update this Feed map if needed, for now it contains only what we use in our manifests
+var FeedTypes = map[string]Feed{
+	string(AllHour):          AllHour,
+	string(AllDay):           AllDay,
+	string(AllWeek):          AllWeek,
+	string(SignificantMonth): SignificantMonth,
+}
+
 // we omit "tsunami" field
 type Properties struct {
 	Magnitude     float64   `json:"mag"`
