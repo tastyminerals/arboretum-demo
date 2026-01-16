@@ -76,18 +76,18 @@ func (t *Transformer) subWithTransformAndPublishCallback(ctx context.Context) er
 
 // Transform data bytes into USGSFeeds and then into GeoFeature array ready to be published.
 func (t *Transformer) transform(data []byte) ([]byte, error) {
-	var feeds messages.USGSFeeds
+	var usgsFeats messages.USGSFeats
 
-	if err := json.Unmarshal(data, &feeds); err != nil {
+	if err := json.Unmarshal(data, &usgsFeats); err != nil {
 		return nil, fmt.Errorf("unmarshaling received data failed: %w", err)
 	}
 
-	features, err := t.convert(feeds.Features)
+	feats, err := t.convert(usgsFeats.Features)
 	if err != nil {
 		return nil, fmt.Errorf("converting geo features failed: %w", err)
 	}
 
-	featuresAsData, err := json.Marshal(features)
+	featuresAsData, err := json.Marshal(feats)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling geo features failed: %w", err)
 	}

@@ -5,64 +5,89 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"math/rand"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/tastyminerals/arboretum-demo/services/internal/messages"
 	"github.com/tastyminerals/arboretum-demo/services/internal/natsutils"
 )
 
 var feedsUrl = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/"
+var eventsUrl = "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&producttype=impact-text&starttime=%s&endtime=%s&minsig=600"
 
-// Pring a fetcher greeting message with some useful info
-func greetMsg(pollFreq time.Duration, feedType string, subject string) {
-	log.Printf("---> Hello there, the Fetcher is online! <---")
-	log.Printf("We shall be polling at the speed of %s from %s and publishing to %s", pollFreq.String(), feedType, subject)
+// Get event detail response, unmarshal it into ImpactDataResponse and return ImpactData if possible.
+func buildImpactData(ctx context.Context, detailUrl string) (messages.ImpactData, error) {
+	data, err := httpGet(ctx, detailUrl, 30)
+	if err != nil {
+		return messages.ImpactData{}, err
+	}
+
+	var idr messages.ImpactDataResponse
+	if err := json.Unmarshal(data, &idr); err != nil {
+		return messages.ImpactData{}, fmt.Errorf("unmarshaling impact data response failed: %w", err)
+	}
+
+	if len(idr.Properties.Products.ImpactText) == 0 {
+		return messages.ImpactData{}, fmt.Errorf("impact-text data doesn't exist")
+	}
+	return messages.ImpactData{Id: idr.Id, Time: idr.Properties.Time, Text: idr.Properties.Products.ImpactText[0].Contents[""].Bytes}, nil
+
 }
 
-// Create http client and perform a GET request to fetch USGS feed data.
-func fetchData(ctx context.Context, feedType string) ([]byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedsUrl+feedType, nil)
-	if err != nil {
-		return nil, err
-	}
-	response, err := client.Do(req)
+func fetchImpactData(ctx context.Context) ([][]byte, error) {
+	// Get last 30 days events from USGS API
+	// TIP: use AddDate instead of plain time.Date arithmetic which can trigger Go normalization if Feb 31 -> March 2d or 3d
+	url := fmt.Sprintf(eventsUrl, time.Now().AddDate(0, 0, -30).Format("2006-01-02"), time.Now().Format("2006-01-02"))
+	data, err := httpGet(ctx, url, 60)
 	if err != nil {
 		return nil, err
 	}
 
-	// response.Body.Close() should be err checked, wrap it into deferable function
-	defer func() {
-		if err := response.Body.Close(); err != nil {
-			log.Printf("failed to close response body because of %v", err)
+	var usgsFeats messages.USGSFeats
+	if err := json.Unmarshal(data, &usgsFeats); err != nil {
+		return nil, fmt.Errorf("unmarshaling events data failed: %w", err)
+	}
+
+	// For each earthquake event retrieve the impact-text data if available, unmarshal -> ImpactData -> marshal into [][]byte.
+	var bbytes [][]byte
+	for _, feat := range usgsFeats.Features {
+		impData, err := buildImpactData(ctx, feat.Properties.Detail)
+		if err != nil {
+			log.Printf("failed to build impact data due to %v from %s", err, feat.Properties.Detail)
+			continue
 		}
-	}()
+		data, err := json.Marshal(impData)
+		if err != nil {
+			log.Printf("failed to marshal impact data due to %v", err)
+			continue
+		}
+		bbytes = append(bbytes, data)
+	}
 
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected API response status: %d", response.StatusCode)
-	}
-	// in Go, the response Body is streamed on demand, we need a explicitly read from it
-	data, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
+	return bbytes, nil
 }
 
-// This function fetches the USGS feed as JSON once per poll frequency set in the manifest and pushes it to the message broker.
-// The function performs up to 5 retries with simple backoff.
-// HINT: The update frequency is set to once per minute because this is the frequency of USGS feeds update.
-func fetchAndPublish(ctx context.Context, url string, subject string, pollFreq time.Duration, feedType string) {
+/*
+Create http Client and perform a series of GET requests to fetch USGS impact data from GeoJSON summary and detail.
+The function performs the following requests:
 
-	// create unauthenticated NATS connection
-	nc, err := natsutils.Connect(url, "arboretum-fetcher")
+ 1. First GET retrieves a list of the most significant events that contains "impact-text" data from GeoJSON summary feeds.
+    The "impact-data" can be retrieved using "detail" event url.
+ 2. Then, for each event, the function performs a GET request to retrieve the data from GeoJSON detail that contain "impact-text".
+ 3. We parse the response to extract "impact-text" as well as "event_id", "event_time", "updated" values.
+ 4. Finally, we marshal and publish to NATS.
+
+https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&producttype=impact-text&starttime=2025-01-01&endtime=2026-01-15&minsig=600
+https://earthquake.usgs.gov/fdsnws/event/1/query?eventid=us6000qw60&format=geojson
+*/
+func fetchImpactDataAndPublish(ctx context.Context, natsUrl string, subject string, pollFreq time.Duration, feedType messages.Feed) {
+	// create unauthenticated NATS connection, NATS doesn't require unique names but it makes debugging easier
+	nc, err := natsutils.Connect(natsUrl, "arboretum-fetcher-"+string(feedType))
 	if err != nil {
 		log.Fatalf("failed to connect to NATS due to %v\n", err)
 	}
@@ -73,54 +98,41 @@ func fetchAndPublish(ctx context.Context, url string, subject string, pollFreq t
 		}
 	}()
 
-	ticker := time.NewTicker(pollFreq)
-	defer ticker.Stop() // Go ticker never stops, we need to defer stop it
+	withPolling(ctx, fetchImpactData, nc, subject, pollFreq)
 
-	// start the main fetcher loop that queries USGS and publishes []bytes to broker
-	for {
-		select {
-		case <-ticker.C:
-			var data []byte
-			var err error
-			maxRetries := 5
+}
 
-			requestCtx, requestCancel := context.WithTimeout(ctx, 10*time.Second)
-
-			for attempt := 0; attempt < maxRetries; attempt++ {
-				data, err = fetchData(requestCtx, feedType+".geojson")
-				if err == nil {
-					break
-				}
-
-				fmt.Println("Next attempt")
-				if attempt < maxRetries-1 {
-					log.Printf("attempt %d failed to fetch data because of %v", attempt+1, err)
-					// double the sleep time with every attempt: 1s, 2s, 4s, 8s, 16s
-					sleep := int64(1000 * (1 << attempt))
-					// add random jitter seeded upon package import
-					jitter := rand.Int63n(sleep)
-					time.Sleep(time.Duration(sleep+jitter) * time.Millisecond)
-				}
-			}
-
-			requestCancel() // precaution explicit canceling even if we have timeout set
-
-			if err != nil {
-				log.Printf("fetching data failed after %d attempts because of %v\n", maxRetries, err)
-				continue
-			}
-
-			// if nothing subscribed to this channel, the message won't be delivered
-			if err := nc.Publish(subject, data); err != nil {
-				log.Printf("failed to publish to %s because of %v", subject, err)
-			} else {
-				log.Printf("published %.2fKB message to %s", float64(len(data))/1024, subject)
-			}
-
-		case <-ctx.Done(): // triggered when SIGTERM is called: the parent context will propagate here
-			return
-		}
+// Create http client and perform a GET request to fetch USGS feed data.
+func fetchFeeds(ctx context.Context, feedType messages.Feed) ([][]byte, error) {
+	data, err := httpGet(ctx, feedsUrl+string(feedType)+".geojson", 30)
+	if err != nil {
+		return nil, err
 	}
+	return [][]byte{data}, nil
+
+}
+
+// This function fetches the USGS feed as JSON once per poll frequency set in the manifest and pushes it to the message broker.
+// The function performs up to 5 retries with simple backoff.
+// HINT: The update frequency is set to once per minute because this is the frequency of USGS feeds update.
+func fetchFeedsAndPublish(ctx context.Context, url string, subject string, pollFreq time.Duration, feedType messages.Feed) {
+
+	// create unauthenticated NATS connection, NATS doesn't require unique names but it makes debugging easier
+	nc, err := natsutils.Connect(url, "arboretum-fetcher-"+string(feedType))
+	if err != nil {
+		log.Fatalf("failed to connect to NATS due to %v\n", err)
+	}
+
+	defer func() {
+		if err := nc.Drain(); err != nil {
+			log.Printf("failed to drain NATS connection: %v", err)
+		}
+	}()
+
+	// HINT: lets practice Go closures here
+	withPolling(ctx, func(ctx context.Context) ([][]byte, error) {
+		return fetchFeeds(ctx, feedType)
+	}, nc, subject, pollFreq)
 }
 
 func main() {
@@ -144,19 +156,27 @@ func main() {
 		pollFreq = time.Duration(1 * time.Minute)
 	}
 
-	feedType := os.Getenv("FEED_FREQUENCY_TYPE")
+	feedType := messages.FeedTypes[os.Getenv("FEED_TYPE")]
 	if feedType == "" {
-		log.Println("FEED_FREQUENCY_TYPE is not set, using 'all_hour'")
-		feedType = "all_hour"
+		log.Println("FEED_TYPE is not set, using 'all_hour'")
+		feedType = messages.AllHour
 	}
 
-	pubSubject := os.Getenv("PUB_SUBJECT") + "." + feedType
-	if pubSubject == "" {
-		pubSubject = "earthquakes.raw." + feedType
-		log.Printf("PUB_SUBJECT is not set, using '%s'", pubSubject)
+	feedsSubject := os.Getenv("FEEDS_SUBJECT") + "." + string(feedType)
+	if feedsSubject == "" {
+		feedsSubject = "earthquakes.raw." + string(feedType)
+		log.Printf("FEEDS_SUBJECT is not set, using '%s'", feedsSubject)
 	}
 
-	go fetchAndPublish(ctx, url, pubSubject, pollFreq, feedType)
+	go fetchFeedsAndPublish(ctx, url, feedsSubject, pollFreq, feedType)
+
+	impactSubject := os.Getenv("IMPACT_SUBJECT")
+	if impactSubject == "" {
+		impactSubject = "earthquakes.impact"
+		log.Printf("IMPACT_SUBJECT is not set, using '%s'", impactSubject)
+	}
+	// HINT: the poll interval here is fixed because I don't want to change it (unless the Earth becomes an unstable place to live).
+	go fetchImpactDataAndPublish(ctx, url, impactSubject, 12*time.Hour, feedType)
 
 	// add goroutine for shutdown via SIGTERM, e.g. so that k8s can cleanly terminate the pod
 	// HINT: ideally, the channel creation should be done separately (in main), this is more idiomatic.
@@ -168,7 +188,7 @@ func main() {
 		cancel() // actual shutdown
 	}()
 
-	greetMsg(pollFreq, feedType, pubSubject)
+	greetMsg(pollFreq, feedType, feedsSubject)
 	<-ctx.Done() // we need to block until all our goroutines finish, main won't wait for them
 	log.Println("The Fetcher stopped.")
 }

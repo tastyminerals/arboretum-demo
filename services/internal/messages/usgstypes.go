@@ -83,7 +83,7 @@ type GeoFeature struct {
 	Geometry   Geometry   `json:"geometry"`
 }
 
-type USGSFeeds struct {
+type USGSFeats struct {
 	Type     string       `json:"type"`
 	Features []GeoFeature `json:"features"`
 }
@@ -91,10 +91,26 @@ type USGSFeeds struct {
 // represents earthquake impact data which becomes available after some time only
 // comes from Feature "properties" -> "products" -> "impact-text"
 type ImpactData struct {
-	Id           string `json:"id"`           // Feature top level "id"
-	Time         int64  `json:"time"`         // Feature top level "time"
-	LastModified int64  `json:"lastModified"` //"impact-text: [{"contents" : {"" : {"lastModified"}}}]"
-	Text         string `json:"bytes"`        // "impact-text: [{"contents" : {"" : {"bytes"}}}]"
+	Id   string    // Feature top level "id"
+	Time time.Time // Feature top level "time"
+	Text string    // "impact-text: [{"contents" : {"" : {"bytes"}}}]"
+}
+
+// HINT: We don't reuse the existing Properties because we only need to unmarshall "bytes" and few other fields.
+type ImpactProperties struct {
+	Time     time.Time `json:"time"`
+	Products struct {
+		ImpactText []struct {
+			Contents map[string]struct {
+				Bytes string `json:"bytes"`
+			} `json:"contents"`
+		} `json:"impact-text"`
+	} `json:"products"`
+}
+
+type ImpactDataResponse struct {
+	Properties ImpactProperties `json:"properties"`
+	Id         string           `json:"id"`
 }
 
 /*
@@ -107,11 +123,12 @@ This pollutes our API yet a good practical solution, yes, but.
 But lets use a hack because learning Go should be fun!
 
 Let's use custom json unmarshaling with type alias, struct embedding and field shadowing, yeee boi.
+
+This methid implements json unmarshal interface for `Properties` struct and json lib will call this method instead.
+Creates anonym struct that has additional int64 Time, Updated fields that don't exist in the actual `Properties`.
+The anonym struct *Dummy field is nil and needs to be initialized correctly via rewiring *Dummy pointer to point to p pointer (already initialized).
+These makes dummy a fully initialized struct with shadowed Time, Updated fields which allows json unmarshaling.
 */
-// Implements json unmarshal interface for `Properties` struct and json lib will call this method instead.
-// This method creates anonym struct that has additional int64 Time, Updated fields that don't exist in the actual `Properties`.
-// The anonym struct *Dummy field is nil and needs to be initialized correctly via rewiring *Dummy pointer to point to p pointer (already initialized).
-// These makes dummy a fully initialized struct with shadowed Time, Updated fields which allows json unmarshaling.
 func (p *Properties) UnmarshalJSON(data []byte) error {
 	type Dummy Properties // type aliasing to prevent json Unmarshal infinite recursion, (works because dummy won't inherit Properties method)
 	dummy := struct {
@@ -130,4 +147,22 @@ func (p *Properties) UnmarshalJSON(data []byte) error {
 
 	// at this point, our anon dummy with unmarshaled Time and Updated can discarded, keeping the actual p struct with the fields we need
 	return nil
+}
+
+// TIP: Go generics doesn't support methods with their own type parameters so we need to duplicate UnmarshalJSON also for ImpactProperties
+func (ip *ImpactProperties) UnmarshalJSON(data []byte) error {
+	type Dummy ImpactProperties
+	dummy := struct {
+		Time int64 `json:"time"`
+		*Dummy
+	}{Dummy: (*Dummy)(ip)}
+
+	if err := json.Unmarshal(data, &dummy); err != nil {
+		return err
+	}
+
+	ip.Time = time.UnixMilli(dummy.Time)
+
+	return nil
+
 }

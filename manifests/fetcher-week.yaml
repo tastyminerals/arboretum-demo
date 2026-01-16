@@ -35,8 +35,10 @@ spec:
               value: "8h" # 30m, 1h, 8h etc.
             - name: FEED_TYPE
               value: "all_week"
-            - name: PUB_SUBJECT
+            - name: FEEDS_SUBJECT
               value: "earthquakes.raw"
+            - name: IMPACT_SUBJECT
+              value: "earthquakes.impact"
           resources:
             limits:
               cpu: "100m"
